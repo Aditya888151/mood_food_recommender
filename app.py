@@ -4,6 +4,7 @@
 from flask import Flask, jsonify, request
 import json
 import re
+import os
 from textblob import TextBlob
 
 # Try to import ML detector, fallback to simple detection
@@ -248,10 +249,6 @@ def detect_mood():
     except Exception as e:
         return jsonify({"error": f"Mood detection failed: {str(e)}"}), 500
 
-# For Vercel deployment
 if __name__ == '__main__':
     print(f"Starting API with {len(menu_items)} items, {len(mood_to_category)} moods")
-    app.run(debug=True)
-else:
-    # This is needed for Vercel
-    application = app
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
