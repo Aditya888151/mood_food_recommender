@@ -4,17 +4,64 @@
 from flask import Flask, jsonify, request
 import json
 import re
-from improved_mood_detector import ImprovedMoodDetector
+from textblob import TextBlob
+
+# Try to import ML detector, fallback to simple detection
+try:
+    from improved_mood_detector import ImprovedMoodDetector
+    ML_AVAILABLE = True
+except ImportError:
+    ML_AVAILABLE = False
 
 app = Flask(__name__)
 
-# Initialize mood detector
-mood_detector = ImprovedMoodDetector()
-try:
-    mood_detector.load_model()
-except:
-    print("Training mood detection model...")
-    mood_detector.train_model()
+# Initialize mood detector based on availability
+if ML_AVAILABLE:
+    mood_detector = ImprovedMoodDetector()
+    try:
+        mood_detector.load_model()
+    except:
+        print("Training mood detection model...")
+        mood_detector.train_model()
+else:
+    # Simple keyword-based detection for Vercel
+    mood_keywords = {
+        'happy': ['happy', 'excited', 'great', 'wonderful', 'fantastic', 'amazing'],
+        'sad': ['sad', 'down', 'depressed', 'blue', 'heartbroken', 'crying'],
+        'angry': ['angry', 'mad', 'furious', 'rage', 'irritated', 'frustrated'],
+        'stressed': ['stressed', 'overwhelmed', 'pressure', 'anxious', 'worried'],
+        'relaxed': ['relaxed', 'calm', 'peaceful', 'zen', 'tranquil', 'chill'],
+        'hungry': ['hungry', 'starving', 'famished', 'craving', 'need food'],
+        'adventurous': ['adventurous', 'explore', 'new', 'different', 'unique'],
+        'energetic': ['energetic', 'pumped', 'dynamic', 'charged', 'active'],
+        'comfort': ['comfort', 'cozy', 'warm', 'familiar', 'homely'],
+        'light': ['light', 'fresh', 'healthy', 'clean', 'simple']
+    }
+    
+    def simple_mood_detect(text):
+        text = text.lower()
+        mood_scores = {}
+        for mood, keywords in mood_keywords.items():
+            score = sum(1 for keyword in keywords if keyword in text)
+            if score > 0:
+                mood_scores[mood] = score
+        
+        if mood_scores:
+            best_mood = max(mood_scores, key=mood_scores.get)
+            confidence = min(0.9, 0.5 + mood_scores[best_mood] * 0.1)
+            return best_mood, confidence
+        
+        try:
+            blob = TextBlob(text)
+            sentiment = blob.sentiment.polarity
+            if sentiment > 0.3:
+                return 'happy', 0.7
+            elif sentiment < -0.3:
+                return 'sad', 0.7
+        except:
+            pass
+        
+        return 'relaxed', 0.5
 
 def parse_js_data(file_path):
     """Parse JavaScript object notation from ItemData.js file"""
@@ -99,8 +146,10 @@ def recommend():
             return jsonify({"error": "Text is required for mood detection"}), 400
         
         try:
-            # Call mood detector with sentiment analysis enhancement
-            detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+            if ML_AVAILABLE:
+                detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+            else:
+                detected_mood, confidence = simple_mood_detect(text)
             mood = detected_mood.lower()
         except Exception as e:
             return jsonify({"error": f"Mood detection failed: {str(e)}"}), 500
@@ -185,8 +234,10 @@ def detect_mood():
         return jsonify({"error": "Text is required for mood detection"}), 400
     
     try:
-        # Use machine learning model to detect mood from text
-        mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+        if ML_AVAILABLE:
+            mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+        else:
+            mood, confidence = simple_mood_detect(text)
         
         return jsonify({
             "text": text,
