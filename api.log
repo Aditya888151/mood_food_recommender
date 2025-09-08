@@ -1,0 +1,11 @@
+2025-09-08 18:23:21,358 - __main__ - INFO - Starting Mood-Based Food Recommendation API
+2025-09-08 18:23:21,358 - __main__ - INFO - Menu items: 444, Moods: 19
+2025-09-08 18:23:21,359 - __main__ - INFO - ML Model available: True
+2025-09-08 18:23:21,374 - __main__ - INFO - Starting Mood-Based Food Recommendation API
+2025-09-08 18:23:21,374 - __main__ - INFO - Menu items: 444, Moods: 19
+2025-09-08 18:23:21,374 - __main__ - INFO - Starting Mood-Based Food Recommendation API
+2025-09-08 18:23:21,378 - __main__ - INFO - Menu items: 444, Moods: 19
+2025-09-08 18:23:21,378 - __main__ - INFO - ML Model available: True
+2025-09-08 18:23:23,076 - __main__ - INFO - Starting Mood-Based Food Recommendation API
+2025-09-08 18:23:23,076 - __main__ - INFO - Menu items: 444, Moods: 19
+2025-09-08 18:23:23,083 - __main__ - INFO - ML Model available: True

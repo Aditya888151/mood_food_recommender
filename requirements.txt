@@ -3,4 +3,4 @@ textblob
 scikit-learn
 pandas
 numpy
-gunicorn
+requests
