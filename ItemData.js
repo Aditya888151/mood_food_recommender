@@ -1079,7 +1079,7 @@ const itemData = [
     item_name: "CORN SHEEK KABAB",
     category: "Smokey Tandoori Starter Veg",
     qty: 1,
-    nc: true,
+    nc: false,
     ttp: 15,
   },
   {

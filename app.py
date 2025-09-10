@@ -1,9 +1,11 @@
 # Mood-based Food Recommendation API - Production Version
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 import json
 import re
 import logging
 import os
+import random
 from datetime import datetime
 from textblob import TextBlob
 
@@ -18,7 +20,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Try to import ML detector, fallback to simple detection
+# Try to import ML detectors, fallback to simple detection
+try:
+    from advanced_food_ml import AdvancedFoodML
+    ADVANCED_ML_AVAILABLE = True
+except ImportError:
+    ADVANCED_ML_AVAILABLE = False
+
 try:
     from mood_detector import ImprovedMoodDetector
     ML_AVAILABLE = True
@@ -26,6 +34,7 @@ except ImportError:
     ML_AVAILABLE = False
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes
 
 # Simple mood detection (always available as fallback)
 mood_keywords = {
@@ -50,9 +59,9 @@ def detect_food_intent(text):
         'biryani': ['biryani', 'biriyani', 'pulao'],
         'pizza': ['pizza'],
         'pasta': ['pasta'],
-        'chicken': ['chicken', 'murgh'],
+        'chicken': ['chicken', 'murgh', 'meat'],
         'paneer': ['paneer'],
-        'noodles': ['noodles', 'hakka', 'schezwan'],
+        'noodles': ['noodles','maggi', 'hakka', 'schezwan'],
         'momos': ['momos', 'momo'],
         'sandwich': ['sandwich'],
         'dosa': ['dosa'],
@@ -63,15 +72,16 @@ def detect_food_intent(text):
         'kabab': ['kabab', 'kebab'],
         'fish': ['fish', 'seafood'],
         'egg': ['egg', 'omelette'],
-        'mutton': ['mutton', 'lamb'],
+        'mutton': ['mutton', 'lamb', 'gosh'],
         'prawn': ['prawn', 'shrimp'],
-        'cold drinks': ['cold drink', 'cold drinks', 'soft drink', 'soda'],
+        'cold drinks': ['cold drink', 'cold drinks', 'soft drink', 'soda', 'pepsi', 'coke', 'drink'],
         'juice': ['juice', 'fresh juice'],
         'coffee': ['coffee'],
         'tea': ['tea', 'chai'],
         'lassi': ['lassi'],
         'shake': ['shake', 'milkshake'],
-        'smoothie': ['smoothie']
+        'smoothie': ['smoothie'], 
+        'thali': ['thali', 'full meal ', 'meal']
     }
     
     # Direct food request indicators
@@ -89,7 +99,7 @@ def detect_food_intent(text):
         return True, detected_foods
     
     # If only food mentioned without mood words, it's likely food intent
-    mood_words = ['happy', 'sad', 'angry', 'stressed', 'relaxed', 'hungry', 'feeling', 'mood']
+    mood_words = ['happy', 'sad', 'angry', 'stressed','not well','well', 'good', 'simple', 'relaxed', 'hungry', 'feeling', 'mood']
     has_mood_words = any(word in text_lower for word in mood_words)
     
     if detected_foods and not has_mood_words:
@@ -106,13 +116,13 @@ def simple_mood_detect(text):
         return 'hungry', 0.9  # High confidence for direct food requests
     
     # Priority detection for hunger-related phrases
-    hunger_phrases = ['feeling hungry', 'am hungry', 'getting hungry', 'want food', 'need food', 'craving food']
+    hunger_phrases = ['feeling hungry', 'am hungry', 'getting hungry', 'want food', 'need food', 'craving food', 'craving', 'hungry', 'hunger', "i'm feeling hungry", "i'm hungry"]
     if any(phrase in text_lower for phrase in hunger_phrases):
         return 'hungry', 0.8
     
     # Check for food mentions that indicate hunger
-    food_mentions = ['biryani', 'pizza', 'pasta', 'noodles', 'chicken', 'rice', 'curry', 'sandwich']
-    hunger_indicators = ['want', 'need', 'craving']
+    food_mentions = ['biryani', 'pizza', 'pasta', 'noodles', 'chicken', 'rice', 'curry', 'sandwich', 'thali', 'meal']
+    hunger_indicators = ['want', 'need', 'craving', 'wants', 'needs']
     
     has_food = any(food in text_lower for food in food_mentions)
     has_hunger_indicator = any(indicator in text_lower for indicator in hunger_indicators)
@@ -145,8 +155,16 @@ def simple_mood_detect(text):
     
     return 'relaxed', 0.5
 
-# Initialize mood detector
-if ML_AVAILABLE:
+# Initialize advanced ML models
+if ADVANCED_ML_AVAILABLE:
+    advanced_ml = AdvancedFoodML()
+    try:
+        advanced_ml.load_models()
+        print("Advanced ML models loaded successfully")
+    except:
+        print("Training advanced ML models...")
+        advanced_ml.train_models()
+elif ML_AVAILABLE:
     mood_detector = ImprovedMoodDetector()
     try:
         mood_detector.load_model()
@@ -181,28 +199,47 @@ def parse_js_data(file_path):
 menu_items = parse_js_data('ItemData.js')
 print(f"Loaded {len(menu_items)} menu items")
 
-# Mood to food category mapping
+# All available categories for dynamic selection
+all_categories = [
+    "Rice / Biryani", "Indian Main Course Veg", "Indian Main Course Non Veg", 
+    "Pizza", "Pasta", "Chinese Veg", "Chinese Non Veg", "Smokey Tandoori Roasted Non Veg",
+    "Smokey Tandoori Starter Veg", "Soup", "Salad", "Beverages", "Dessert", "Ice Cream",
+    "Sandwich", "Steam Momos", "Hi Tea", "Indian Breads", "Raita", "Japanese",
+    "Continental Sizzler", "Fish / Prawns", "Continental Starter", "Bar Bite",
+    "Fried Rice / Noodles", "South Indian", "Wrap", "Kathi Roll"
+]
+
+# Enhanced mood to food category mapping with better hungry options
 mood_to_category = {
     "happy": ["Beverages", "Dessert", "Ice Cream", "Hi Tea", "Pizza"],
     "sad": ["Soup", "Indian Main Course Veg", "Indian Main Course Non Veg", "Dessert", "Ice Cream"],
     "angry": ["Chinese Non Veg", "Smokey Tandoori Roasted Non Veg", "Bar Bite"],
     "stressed": ["Beverages", "Hi Tea", "Soup", "Dessert"],
     "relaxed": ["Salad", "South Indian", "Japanese", "Raita", "Beverages"],
-    "hungry": ["Pizza", "Pasta", "Rice / Biryani", "Indian Main Course Veg", "Indian Main Course Non Veg", "Sandwich"],
+    "hungry": ["Rice / Biryani", "Indian Main Course Non Veg", "Indian Main Course Veg", "Pizza", "Pasta", "Chinese Non Veg", "Smokey Tandoori Roasted Non Veg", "Sandwich"],
     "adventurous": ["Japanese", "Continental Sizzler", "Fish / Prawns", "Continental Starter"],
     "energetic": ["Chinese Veg", "Chinese Non Veg", "Fried Rice / Noodles", "Steam Momos"],
     "comfort": ["Indian Main Course Veg", "Indian Main Course Non Veg", "Soup", "Indian Breads"],
-    "light": ["Salad", "Soup", "South Indian", "Raita", "Hi Tea"],
-    "spicy": ["Chinese Non Veg", "Smokey Tandoori Roasted Non Veg", "Smokey Tandoori Starter Veg"],
-    "quick": ["Sandwich", "Wrap", "Kathi Roll", "Steam Momos", "Bar Bite"],
-    "festive": ["Rice / Biryani", "Smokey Tandoori Roasted Non Veg", "Smokey Tandoori Starter Veg", "Dessert"],
-    "healthy": ["Salad", "Soup", "South Indian", "Japanese", "Raita"],
-    "indulgent": ["Pizza", "Pasta", "Continental Sizzler", "Dessert", "Ice Cream"],
-    "exotic": ["Japanese", "Continental Sizzler", "Fish / Prawns", "Continental Starter"],
-    "traditional": ["Indian Main Course Veg", "Indian Main Course Non Veg", "Indian Breads", "South Indian"],
-    "party": ["Pizza", "Chinese Non Veg", "Continental Sizzler", "Beverages", "Dessert"],
-    "romantic": ["Continental Sizzler", "Continental Starter", "Dessert", "Beverages"]
+    "light": ["Salad", "Soup", "South Indian", "Raita", "Hi Tea"]
 }
+
+def get_dynamic_categories(mood, diet_type):
+    """Get dynamic categories that change every time"""
+    import time
+    random.seed(int(time.time() * 1000))
+    
+    # Start with mood-based categories
+    base_categories = mood_to_category.get(mood, ["Pizza", "Pasta", "Rice / Biryani"])
+    
+    # Add random categories from all available
+    extra_categories = [cat for cat in all_categories if cat not in base_categories]
+    random.shuffle(extra_categories)
+    
+    # Combine and shuffle for complete randomness
+    dynamic_categories = base_categories + extra_categories[:5]
+    random.shuffle(dynamic_categories)
+    
+    return dynamic_categories[:8]  # Return 8 categories max
 
 @app.route('/')
 def home():
@@ -219,244 +256,54 @@ def recommend():
             text = data.get('text', '').strip()
             if not text or len(text) > 500:
                 return jsonify({"error": "Text is required and must be under 500 characters"}), 400
-        
-        try:
-            # First check if this is a direct food request (prioritize over ML)
-            is_food_intent, detected_foods = detect_food_intent(text)
-            if is_food_intent:
-                detected_mood, confidence = 'hungry', 0.9
-            elif ML_AVAILABLE:
-                detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
-            else:
+            
+            try:
+                # First check if this is a direct food request (prioritize over ML)
+                is_food_intent, detected_foods = detect_food_intent(text)
+                if is_food_intent:
+                    detected_mood, confidence = 'hungry', 0.9
+                elif ADVANCED_ML_AVAILABLE:
+                    detected_mood, confidence = advanced_ml.predict_mood_advanced(text)
+                elif ML_AVAILABLE:
+                    detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+                else:
+                    detected_mood, confidence = simple_mood_detect(text)
+                mood = detected_mood.lower()
+            except Exception as e:
+                print(f"Mood detection error: {e}")
+                # Fallback to simple detection
                 detected_mood, confidence = simple_mood_detect(text)
-            mood = detected_mood.lower()
-        except Exception as e:
-            print(f"Mood detection error: {e}")
-            # Fallback to simple detection
-            detected_mood, confidence = simple_mood_detect(text)
-            mood = detected_mood.lower()
-    else:
-        mood = data.get("mood", "").lower()
-        confidence = 1.0
-        
-    if not mood:
-        return jsonify({"error": "Mood is required"}), 400
+                mood = detected_mood.lower()
+        else:
+            mood = data.get("mood", "").lower()
+            confidence = 1.0
+            
+        if not mood:
+            return jsonify({"error": "Mood is required"}), 400
 
-    categories = mood_to_category.get(mood, [])
-    if not categories:
-        return jsonify({"error": f"No category mapping for mood: {mood}"}), 404
-
-    diet_type = data.get("diet_type", "both").lower()
-    
-    # Filter by categories
-    recommendations = [item for item in menu_items if item["category"] in categories]
-    
-    # Enhanced food item detection and prioritization
-    prioritized_items = []
-    mentioned_foods = []
-    
-    if 'text' in data:
-        text_lower = data['text'].lower()
+        diet_type = data.get("diet_type", "both").lower()
         
-        # Comprehensive food keyword mapping with exact menu item matching
-        food_keywords = {
-            # Rice/Biryani items
-            'biryani': ['biryani', 'biriyani', 'pulao', 'pilaf'],
-            'fried rice': ['fried rice', 'hakka rice', 'schezwan rice'],
-            'rice': ['rice', 'chawal'],
-            
-            # Pizza & Italian
-            'pizza': ['pizza'],
-            'pasta': ['pasta', 'spaghetti', 'penne', 'macaroni'],
-            
-            # Chinese
-            'noodles': ['noodles', 'hakka', 'schezwan', 'chowmein'],
-            'momos': ['momos', 'momo', 'dumpling'],
-            'manchurian': ['manchurian'],
-            
-            # Indian Breads & Snacks
-            'sandwich': ['sandwich'],
-            'dosa': ['dosa', 'uttapam'],
-            'paratha': ['paratha', 'roti', 'naan', 'chapati'],
-            'samosa': ['samosa'],
-            'pakora': ['pakora', 'bhajiya'],
-            
-            # Soups & Starters
-            'soup': ['soup'],
-            'tikka': ['tikka'],
-            'kabab': ['kabab', 'kebab', 'seekh'],
-            'tandoori': ['tandoori'],
-            
-            # Curries & Main Course
-            'curry': ['curry', 'masala', 'gravy'],
-            'dal': ['dal', 'lentil'],
-            'paneer': ['paneer', 'cottage cheese'],
-            'butter chicken': ['butter chicken', 'murgh makhani'],
-            
-            # Proteins
-            'chicken': ['chicken', 'murgh'],
-            'fish': ['fish', 'seafood', 'machli'],
-            'egg': ['egg', 'omelette', 'anda'],
-            'mutton': ['mutton', 'lamb', 'goat'],
-            'prawn': ['prawn', 'shrimp', 'jhinga'],
-            
-            # Beverages & Desserts
-            'tea': ['tea', 'chai'],
-            'coffee': ['coffee'],
-            'lassi': ['lassi'],
-            'ice cream': ['ice cream', 'kulfi'],
-            'dessert': ['dessert', 'sweet', 'mithai'],
-            
-            # Salads & Light
-            'salad': ['salad'],
-            'raita': ['raita'],
-            
-            # Beverages & Drinks
-            'cold drinks': ['cold drink', 'cold drinks', 'soft drink', 'soda', 'coke', 'pepsi'],
-            'juice': ['juice', 'fresh juice'],
-            'coffee': ['coffee', 'cappuccino', 'latte'],
-            'tea': ['tea', 'chai', 'green tea'],
-            'lassi': ['lassi', 'buttermilk'],
-            'shake': ['shake', 'milkshake'],
-            'smoothie': ['smoothie'],
-            
-            # Diet preferences
-            'veg': ['veg', 'vegetarian'],
-            'non-veg': ['non-veg', 'nonveg', 'non vegetarian', 'meat']
-        }
+        # Get dynamic categories that change every time
+        dynamic_categories = get_dynamic_categories(mood, diet_type)
         
-        # Find all mentioned food items with enhanced matching
-        for food_type, keywords in food_keywords.items():
-            if any(keyword in text_lower for keyword in keywords):
-                mentioned_foods.append(food_type)
-                
-                # Find matching items with multiple strategies
-                matching_items = []
-                
-                # Strategy 1: Direct keyword match in item name
-                for item in recommendations:
-                    item_name_lower = item['item_name'].lower()
-                    if any(keyword in item_name_lower for keyword in keywords):
-                        matching_items.append(item)
-                
-                # Strategy 2: Category-based matching for specific foods
-                category_mapping = {
-                    'biryani': ['Rice / Biryani'],
-                    'pizza': ['Pizza'],
-                    'pasta': ['Pasta'],
-                    'noodles': ['Fried Rice / Noodles', 'Chinese Veg', 'Chinese Non Veg'],
-                    'momos': ['Steam Momos'],
-                    'sandwich': ['Sandwich'],
-                    'dosa': ['South Indian'],
-                    'soup': ['Soup'],
-                    'chicken': ['Indian Main Course Non Veg', 'Smokey Tandoori Roasted Non Veg', 'Chinese Non Veg'],
-                    'paneer': ['Indian Main Course Veg'],
-                    'fish': ['Fish / Prawns'],
-                    'egg': ['Indian Main Course Non Veg'],
-                    'mutton': ['Indian Main Course Non Veg', 'Smokey Tandoori Roasted Non Veg'],
-                    'ice cream': ['Ice Cream'],
-                    'dessert': ['Dessert'],
-                    'salad': ['Salad'],
-                    'cold drinks': ['Beverages'],
-                    'juice': ['Beverages'],
-                    'coffee': ['Beverages'],
-                    'tea': ['Beverages'],
-                    'lassi': ['Beverages'],
-                    'shake': ['Beverages'],
-                    'smoothie': ['Beverages'],
-                    'rice': ['Rice / Biryani', 'Fried Rice / Noodles'],
-                    'curry': ['Indian Main Course Veg', 'Indian Main Course Non Veg'],
-                    'tikka': ['Smokey Tandoori Starter Veg', 'Smokey Tandoori Roasted Non Veg'],
-                    'kabab': ['Smokey Tandoori Roasted Non Veg'],
-                    'prawn': ['Fish / Prawns'],
-                    'dal': ['Indian Main Course Veg']
-                }
-                
-                if food_type in category_mapping:
-                    for category in category_mapping[food_type]:
-                        category_items = [item for item in menu_items if item['category'] == category]
-                        matching_items.extend(category_items)
-                
-                # Special handling for noodles - also search all menu items
-                if food_type == 'noodles':
-                    noodle_items = [item for item in menu_items 
-                                  if any(noodle_word in item['item_name'].lower() 
-                                       for noodle_word in ['noodles', 'hakka', 'schezwan', 'chowmein'])]
-                    matching_items.extend(noodle_items)
-                
-                # Remove duplicates and add to prioritized items
-                unique_matches = []
-                seen_names = set()
-                for item in matching_items:
-                    if item['item_name'] not in seen_names:
-                        seen_names.add(item['item_name'])
-                        unique_matches.append(item)
-                
-                prioritized_items.extend(unique_matches)
+        # Get smart recommendations with dynamic categories
+        recommendations = get_smart_recommendations_with_categories(mood, diet_type, dynamic_categories, text if 'text' in data else '')
         
-        # Enhanced reorganization for food-specific requests
-        if prioritized_items:
-            seen = set()
-            final_priority = []
-            
-            # Add prioritized items first (food-specific matches)
-            for item in prioritized_items:
-                if item['item_name'] not in seen:
-                    seen.add(item['item_name'])
-                    final_priority.append(item)
-            
-            # Check if this is a specific food request (should only show that food)
-            is_specific_food_request = any(word in text_lower for word in ['only', 'just', 'specifically']) or \
-                                     any(food in text_lower for food in ['biryani', 'pizza', 'pasta', 'paneer', 'chicken', 'noodles', 'sandwich', 'dosa', 'momos', 'tikka', 'kabab', 'fish', 'egg', 'mutton', 'prawn', 'cold drink', 'juice', 'coffee', 'tea', 'lassi', 'shake', 'smoothie'])
-            
-            if is_specific_food_request and final_priority:
-                # Only return food-specific matches for specific food requests
-                recommendations = final_priority
-            else:
-                # Add remaining items from mood-based categories for general requests
-                for item in recommendations:
-                    if item['item_name'] not in seen:
-                        final_priority.append(item)
-                recommendations = final_priority
-            
-        # Additional category boost based on mentioned foods
-        if mentioned_foods:
-            category_boost = []
-            if any(food in mentioned_foods for food in ['biryani', 'rice', 'fried rice']):
-                category_boost.append('Rice / Biryani')
-            if any(food in mentioned_foods for food in ['pizza']):
-                category_boost.append('Pizza')
-            if any(food in mentioned_foods for food in ['pasta']):
-                category_boost.append('Pasta')
-            if any(food in mentioned_foods for food in ['noodles', 'momos', 'manchurian']):
-                category_boost.extend(['Fried Rice / Noodles', 'Steam Momos', 'Chinese Veg', 'Chinese Non Veg'])
-            if any(food in mentioned_foods for food in ['chicken', 'mutton', 'fish']):
-                category_boost.extend(['Indian Main Course Non Veg', 'Smokey Tandoori Roasted Non Veg'])
-            
-            # Add items from boosted categories only for non-specific requests
-            is_specific_food_request = any(word in text_lower for word in ['only', 'just', 'specifically']) or \
-                                     any(food in text_lower for food in ['biryani', 'pizza', 'pasta', 'paneer', 'chicken', 'noodles', 'sandwich', 'dosa', 'momos', 'tikka', 'kabab', 'fish', 'egg', 'mutton', 'prawn', 'cold drink', 'juice', 'coffee', 'tea', 'lassi', 'shake', 'smoothie'])
-            if not is_specific_food_request:
-                for category in category_boost:
-                    category_items = [item for item in menu_items 
-                                    if item['category'] == category and item['item_name'] not in [r['item_name'] for r in recommendations]]
-                    recommendations.extend(category_items[:3])  # Add top 3 from each boosted category
+        # Use dynamic categories
+        categories = dynamic_categories
+        
+        return jsonify({
+            "detected_mood": mood,
+            "confidence": round(confidence, 2),
+            "categories": categories,
+            "diet_type": diet_type,
+            "recommendations": recommendations,
+            "total_recommendations": len(recommendations)
+        })
     
-    # Filter by diet preference (keep both veg and non-veg when "both")
-    if diet_type == "veg":
-        recommendations = [item for item in recommendations if not item["nc"]]
-    elif diet_type == "non-veg":
-        recommendations = [item for item in recommendations if item["nc"]]
-    
-    return jsonify({
-        "detected_mood": mood,
-        "confidence": round(confidence, 2),
-        "categories": categories,
-        "mentioned_foods": mentioned_foods if 'text' in data else [],
-        "diet_type": diet_type,
-        "recommendations": recommendations,
-        "total_recommendations": len(recommendations)
-    })
+    except Exception as e:
+        logger.error(f"Recommend endpoint error: {str(e)}")
+        return jsonify({"error": "Internal server error"}), 500
 
 @app.route('/categories', methods=['GET'])
 def list_categories():
@@ -478,54 +325,145 @@ def combo_recommend():
             text = data.get('text', '').strip()
             if not text or len(text) > 500:
                 return jsonify({"error": "Text is required and must be under 500 characters"}), 400
-        
-        try:
-            is_food_intent, detected_foods = detect_food_intent(text)
-            if is_food_intent:
-                detected_mood, confidence = 'hungry', 0.9
-            elif ML_AVAILABLE:
-                detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
-            else:
+            
+            try:
+                is_food_intent, detected_foods = detect_food_intent(text)
+                if is_food_intent:
+                    detected_mood, confidence = 'hungry', 0.9
+                elif ML_AVAILABLE:
+                    detected_mood, confidence = mood_detector.predict_mood_with_sentiment(text)
+                else:
+                    detected_mood, confidence = simple_mood_detect(text)
+                mood = detected_mood.lower()
+            except Exception as e:
                 detected_mood, confidence = simple_mood_detect(text)
-            mood = detected_mood.lower()
-        except Exception as e:
-            detected_mood, confidence = simple_mood_detect(text)
-            mood = detected_mood.lower()
-    else:
-        mood = data.get("mood", "").lower()
-        confidence = 1.0
-        
-    if not mood:
-        return jsonify({"error": "Mood is required"}), 400
+                mood = detected_mood.lower()
+        else:
+            mood = data.get("mood", "").lower()
+            confidence = 1.0
+            
+        if not mood:
+            return jsonify({"error": "Mood is required"}), 400
 
-    diet_type = data.get("diet_type", "both").lower()
-    
-    # Get single main item
-    main_item = get_single_main_item(text if 'text' in data else '', mood, diet_type)
-    if not main_item:
-        return jsonify({"error": "No suitable main item found"}), 404
-    
-    # Get combo items
-    combo_items = get_combo_items(main_item, diet_type)
-    
-    return jsonify({
-        "detected_mood": mood,
-        "confidence": round(confidence, 2),
-        "diet_type": diet_type,
-        "main_item": main_item,
-        "combo_items": combo_items,
-        "total_combo_items": len(combo_items)
-    })
+        diet_type = data.get("diet_type", "both").lower()
+        
+        # Get single main item with dynamic category selection
+        dynamic_categories = get_dynamic_categories(mood, diet_type)
+        main_item = get_single_main_item_dynamic(text if 'text' in data else '', mood, diet_type, dynamic_categories)
+        if not main_item:
+            # Fallback to any item matching diet preference
+            if diet_type == 'veg':
+                main_item = next((item for item in menu_items if not item['nc']), menu_items[0])
+            elif diet_type == 'non-veg':
+                main_item = next((item for item in menu_items if item['nc']), menu_items[0])
+            else:
+                main_item = menu_items[0]
+        
+        # Get combo items
+        combo_items = get_combo_items(main_item, diet_type)
+        
+        return jsonify({
+            "detected_mood": mood,
+            "confidence": round(confidence, 2),
+            "diet_type": diet_type,
+            "main_item": main_item,
+            "combo_items": combo_items,
+            "total_combo_items": len(combo_items)
+        })
     
     except Exception as e:
         logger.error(f"Combo endpoint error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-def get_single_main_item(text, mood, diet_type):
-    """Get single best main item based on text and mood"""
+def get_single_main_item_dynamic(text, mood, diet_type, categories):
+    """Get single main item using dynamic categories"""
+    import time
+    random.seed(int(time.time() * 1000))
+    
     text_lower = text.lower() if text else ''
     
-    # Food-specific selection - find exact matches first
+    # Check for specific food requests first
+    food_keywords = {
+        'biryani': ['biryani', 'biriyani', 'pulao'],
+        'pizza': ['pizza'],
+        'pasta': ['pasta', 'penne'],
+        'chicken': ['chicken', 'murgh'],
+        'paneer': ['paneer'],
+        'noodles': ['noodles', 'hakka', 'schezwan']
+    }
+    
+    for food_type, keywords in food_keywords.items():
+        if any(keyword in text_lower for keyword in keywords):
+            matching_items = []
+            for item in menu_items:
+                item_name_lower = item['item_name'].lower()
+                if any(keyword in item_name_lower for keyword in keywords):
+                    if ((diet_type == 'veg' and not item['nc']) or 
+                        (diet_type == 'non-veg' and item['nc']) or 
+                        diet_type == 'both'):
+                        matching_items.append(item)
+            
+            if matching_items:
+                random.shuffle(matching_items)
+                return matching_items[0]
+    
+    # Use dynamic categories for main item selection
+    main_course_categories = [cat for cat in categories if cat in [
+        'Rice / Biryani', 'Pizza', 'Pasta', 'Indian Main Course Non Veg', 
+        'Indian Main Course Veg', 'Chinese Non Veg', 'Chinese Veg'
+    ]]
+    
+    if not main_course_categories:
+        main_course_categories = categories[:3]  # Use first 3 categories
+    
+    random.shuffle(main_course_categories)
+    
+    for category in main_course_categories:
+        category_items = [item for item in menu_items if item['category'] == category]
+        
+        if diet_type == 'veg':
+            category_items = [item for item in category_items if not item['nc']]
+        elif diet_type == 'non-veg':
+            category_items = [item for item in category_items if item['nc']]
+        
+        if category_items:
+            random.shuffle(category_items)
+            return category_items[0]
+    
+    # Fallback
+    if diet_type == 'veg':
+        fallback = [item for item in menu_items if not item['nc']]
+    elif diet_type == 'non-veg':
+        fallback = [item for item in menu_items if item['nc']]
+    else:
+        fallback = menu_items
+    
+    if fallback:
+        random.shuffle(fallback)
+        return fallback[0]
+    
+    return None
+
+def get_single_main_item(text, mood, diet_type):
+    """Get single best main item based on text and mood with variety"""
+    text_lower = text.lower() if text else ''
+    
+    # Check for specific combinations first (e.g., "chicken biryani")
+    if 'chicken biryani' in text_lower or 'chicken biriyani' in text_lower:
+        chicken_biryani_items = [item for item in menu_items 
+                               if 'chicken' in item['item_name'].lower() and 'biryani' in item['item_name'].lower()]
+        if chicken_biryani_items:
+            random.shuffle(chicken_biryani_items)
+            return chicken_biryani_items[0]
+    
+    if 'mutton biryani' in text_lower or 'mutton biriyani' in text_lower:
+        mutton_biryani_items = [item for item in menu_items 
+                              if 'mutton' in item['item_name'].lower() and 'biryani' in item['item_name'].lower()]
+        if mutton_biryani_items:
+            random.shuffle(mutton_biryani_items)
+            return mutton_biryani_items[0]
+    
+    # Food-specific selection - find exact matches
     food_keywords = {
         'biryani': ['biryani', 'biriyani', 'pulao'],
         'pizza': ['pizza'],
@@ -550,129 +488,330 @@ def get_single_main_item(text, mood, diet_type):
         if any(keyword in text_lower for keyword in keywords):
             # Find items that match this specific food type
             matching_items = []
+            
+            # Prioritize main course categories for proper meals
+            main_course_categories = ['Indian Main Course Veg', 'Indian Main Course Non Veg', 'Rice / Biryani', 'Pizza', 'Pasta', 'Chinese Veg', 'Chinese Non Veg']
+            
             for item in menu_items:
                 item_name_lower = item['item_name'].lower()
                 if any(keyword in item_name_lower for keyword in keywords):
                     if ((diet_type == 'veg' and not item['nc']) or 
                         (diet_type == 'non-veg' and item['nc']) or 
                         diet_type == 'both'):
-                        matching_items.append(item)
+                        # Prioritize main course items
+                        if item['category'] in main_course_categories:
+                            matching_items.insert(0, item)  # Add to front
+                        else:
+                            matching_items.append(item)  # Add to back
             
-            # Return the first matching item
+            # Return random matching item for variety
             if matching_items:
+                random.shuffle(matching_items)
                 return matching_items[0]
     
-    # If no specific food mentioned, use mood-based selection
-    if not text_lower or not any(any(keyword in text_lower for keyword in keywords) for keywords in food_keywords.values()):
-        mood_items = {
-            'hungry': ['BUTTER CHICKEN', 'PANEER LABABDAR', 'EGG BIRYANI', 'PIZZA MARGARITA'],
-            'happy': ['PIZZA MARGARITA', 'CHOCOLATE BROWNIE', 'PANEER TIKKA PIZZA'],
-            'sad': ['BUTTER CHICKEN', 'DAL MAKHANI', 'CHOCOLATE BROWNIE'],
-            'stressed': ['MASALA CHAI', 'CHOCOLATE BROWNIE', 'PANEER BUTTER MASALA'],
-            'relaxed': ['MASALA CHAI', 'VEG PULAO', 'PANEER DOSA'],
-            'comfort': ['DAL MAKHANI', 'BUTTER CHICKEN', 'PANEER BUTTER MASALA']
-        }
-        
-        preferred_items = mood_items.get(mood, mood_items['hungry'])
-        
-        for item_name in preferred_items:
-            item = next((item for item in menu_items if item_name.upper() in item['item_name'].upper()), None)
-            if item and ((diet_type == 'veg' and not item['nc']) or 
-                       (diet_type == 'non-veg' and item['nc']) or 
-                       diet_type == 'both'):
-                return item
+    # Enhanced mood-based selection with better variety
+    if mood == 'hungry':
+        # For hungry mood, prioritize popular main dishes
+        popular_categories = ['Rice / Biryani', 'Pizza', 'Pasta', 'Indian Main Course Non Veg', 'Indian Main Course Veg']
+    else:
+        popular_categories = mood_to_category.get(mood, ['Pizza', 'Pasta', 'Rice / Biryani'])
     
-    # Fallback
-    fallback_items = [item for item in menu_items[:20] 
-                     if ((diet_type == 'veg' and not item['nc']) or 
-                        (diet_type == 'non-veg' and item['nc']) or 
-                        diet_type == 'both')]
-    return fallback_items[0] if fallback_items else None
+    # Get diverse items from different categories
+    all_candidates = []
+    
+    for category in popular_categories:
+        category_items = [item for item in menu_items if item['category'] == category]
+        
+        # Filter by diet preference
+        if diet_type == 'veg':
+            category_items = [item for item in category_items if not item['nc']]
+        elif diet_type == 'non-veg':
+            category_items = [item for item in category_items if item['nc']]
+        
+        all_candidates.extend(category_items)
+    
+    # Add variety by shuffling
+    if all_candidates:
+        random.shuffle(all_candidates)
+        return all_candidates[0]
+    
+    # Ultimate fallback with variety
+    if diet_type == 'veg':
+        fallback = [item for item in menu_items if not item['nc']]
+    elif diet_type == 'non-veg':
+        fallback = [item for item in menu_items if item['nc']]
+    else:
+        fallback = menu_items
+    
+    if fallback:
+        random.shuffle(fallback)
+        return fallback[0]
+    
+    return None
 
-def get_combo_items(main_item, diet_type):
-    """Get combo items that go well with the main item"""
-    if not main_item:
-        return []
+def get_smart_recommendations_with_categories(mood, diet_type, categories, text=''):
+    """Get recommendations using dynamic categories"""
+    import time
+    random.seed(int(time.time() * 1000))
     
-    main_category = main_item['category']
-    main_name = main_item['item_name'].lower()
-    is_main_veg = not main_item['nc']
+    recommendations = []
     
-    combo_rules = {
-        # Main course combos
-        'Indian Main Course Veg': ['Beverages', 'Indian Breads', 'Raita'],
-        'Indian Main Course Non Veg': ['Beverages', 'Indian Breads', 'Raita'],
-        'Rice / Biryani': ['Beverages', 'Raita', 'Dessert'],
-        'Pizza': ['Beverages', 'Dessert'],
-        'Pasta': ['Beverages', 'Salad'],
-        'Sandwich': ['Beverages', 'Hi Tea'],
-        'Chinese Veg': ['Beverages', 'Soup'],
-        'Chinese Non Veg': ['Beverages', 'Soup'],
-        'South Indian': ['Beverages', 'Hi Tea']
-    }
+    # Check for specific food requests first
+    is_food_intent, detected_foods = detect_food_intent(text)
     
-    # Specific item combos
-    specific_combos = {
-        'biryani': ['MASALA CHAI', 'RAITA', 'GULAB JAMUN'],
-        'pizza': ['COLD COFFEE', 'CHOCOLATE BROWNIE', 'COLD DRINK'],
-        'pasta': ['COLD COFFEE', 'GARLIC BREAD', 'CAESAR SALAD'],
-        'chicken': ['MASALA CHAI', 'NAAN', 'RAITA'],
-        'paneer': ['MASALA CHAI', 'ROTI', 'RAITA'],
-        'sandwich': ['MASALA CHAI', 'COLD COFFEE'],
-        'burger': ['COLD DRINK', 'FRENCH FRIES'],
-        'noodles': ['COLD DRINK', 'SOUP'],
-        'dosa': ['FILTER COFFEE', 'COCONUT CHUTNEY']
-    }
+    if is_food_intent and detected_foods:
+        for food_type in detected_foods:
+            specific_items = get_specific_food_items(food_type, diet_type)
+            recommendations.extend(specific_items[:2])
     
-    combo_items = []
+    # Use dynamic categories
+    random.shuffle(categories)
     
-    # Add specific combos first
-    for food_type, combo_names in specific_combos.items():
-        if food_type in main_name:
-            for combo_name in combo_names:
-                combo_item = next((item for item in menu_items 
-                                 if combo_name.upper() in item['item_name'].upper()), None)
-                if combo_item and len(combo_items) < 3:
-                    # Diet compatibility check
-                    if ((diet_type == 'veg' and not combo_item['nc']) or 
-                        (diet_type == 'non-veg' and combo_item['nc']) or 
-                        diet_type == 'both'):
-                        combo_items.append(combo_item)
-    
-    # Add category-based combos if we don't have enough specific combos
-    if len(combo_items) < 3:
-        combo_categories = combo_rules.get(main_category, ['Beverages'])
+    for category in categories:
+        if len(recommendations) >= 10:
+            break
+            
+        category_items = [item for item in menu_items if item['category'] == category]
         
-        for category in combo_categories:
-            if len(combo_items) >= 3:
+        if diet_type == 'veg':
+            category_items = [item for item in category_items if not item['nc']]
+        elif diet_type == 'non-veg':
+            category_items = [item for item in category_items if item['nc']]
+        
+        if category_items:
+            random.shuffle(category_items)
+            recommendations.extend(category_items[:1])
+    
+    # Remove duplicates
+    seen = set()
+    unique_recommendations = []
+    for item in recommendations:
+        if item['item_name'] not in seen:
+            unique_recommendations.append(item)
+            seen.add(item['item_name'])
+    
+    random.shuffle(unique_recommendations)
+    return unique_recommendations[:10]
+
+def get_smart_recommendations(mood, diet_type, text=''):
+    """Get smart recommendations with variety and better selection"""
+    import time
+    random.seed(int(time.time() * 1000))  # Use current time for true randomness
+    
+    recommendations = []
+    
+    # Check for specific food requests first
+    is_food_intent, detected_foods = detect_food_intent(text)
+    
+    if is_food_intent and detected_foods:
+        # Handle specific food requests
+        for food_type in detected_foods:
+            specific_items = get_specific_food_items(food_type, diet_type)
+            recommendations.extend(specific_items[:3])  # Max 3 per food type
+    
+    # Always add mood-based items for variety
+    mood_categories = mood_to_category.get(mood, ['Pizza', 'Pasta', 'Rice / Biryani'])
+    
+    # Shuffle categories for variety
+    random.shuffle(mood_categories)
+    
+    # Get diverse items from different categories
+    for category in mood_categories:
+        if len(recommendations) >= 10:
+            break
+            
+        category_items = [item for item in menu_items if item['category'] == category]
+        
+        # Filter by diet
+        if diet_type == 'veg':
+            category_items = [item for item in category_items if not item['nc']]
+        elif diet_type == 'non-veg':
+            category_items = [item for item in category_items if item['nc']]
+        
+        # Add variety - shuffle and take different items each time
+        if category_items:
+            random.shuffle(category_items)
+            recommendations.extend(category_items[:2])  # 2 items per category
+    
+    # Ensure we have good variety and remove duplicates
+    seen_names = set()
+    unique_recommendations = []
+    
+    for item in recommendations:
+        if item['item_name'] not in seen_names:
+            unique_recommendations.append(item)
+            seen_names.add(item['item_name'])
+    
+    # If still not enough, add more popular items
+    if len(unique_recommendations) < 8:
+        all_categories = ['Rice / Biryani', 'Indian Main Course Non Veg', 'Indian Main Course Veg', 
+                         'Pizza', 'Pasta', 'Chinese Non Veg', 'Chinese Veg', 'Smokey Tandoori Roasted Non Veg']
+        
+        random.shuffle(all_categories)
+        
+        for category in all_categories:
+            if len(unique_recommendations) >= 10:
                 break
-            
+                
             category_items = [item for item in menu_items 
-                             if item['category'] == category and 
-                             item['item_name'] != main_item['item_name'] and
-                             item not in combo_items]
+                            if item['category'] == category and 
+                            item['item_name'] not in seen_names]
             
-            # Filter by diet
             if diet_type == 'veg':
                 category_items = [item for item in category_items if not item['nc']]
             elif diet_type == 'non-veg':
                 category_items = [item for item in category_items if item['nc']]
             
-            # Add first available item from category
-            if category_items and len(combo_items) < 3:
-                combo_items.append(category_items[0])
+            if category_items:
+                random.shuffle(category_items)
+                for item in category_items[:1]:  # Add 1 item per category
+                    if len(unique_recommendations) < 10:
+                        unique_recommendations.append(item)
+                        seen_names.add(item['item_name'])
     
-    return combo_items[:3]  # Return max 3 combo items
+    # Final shuffle for complete randomness
+    random.shuffle(unique_recommendations)
+    return unique_recommendations[:10]  # Return max 10 recommendations
+
+def get_specific_food_items(food_type, diet_type):
+    """Get specific food items based on food type"""
+    food_keywords = {
+        'biryani': ['biryani', 'biriyani', 'pulao'],
+        'pizza': ['pizza'],
+        'pasta': ['pasta', 'penne'],
+        'chicken': ['chicken', 'murgh'],
+        'paneer': ['paneer'],
+        'noodles': ['noodles', 'hakka', 'schezwan'],
+        'momos': ['momos', 'momo'],
+        'sandwich': ['sandwich'],
+        'dosa': ['dosa'],
+        'soup': ['soup'],
+        'rice': ['rice', 'chawal'],
+        'curry': ['curry', 'masala'],
+        'tikka': ['tikka'],
+        'kabab': ['kabab', 'kebab'],
+        'fish': ['fish', 'seafood'],
+        'egg': ['egg', 'omelette'],
+        'mutton': ['mutton', 'lamb'],
+        'prawn': ['prawn', 'shrimp'],
+        'cold drinks': ['cold drink', 'pepsi', 'coke'],
+        'juice': ['juice'],
+        'coffee': ['coffee'],
+        'tea': ['tea', 'chai'],
+        'lassi': ['lassi'],
+        'shake': ['shake', 'milkshake'],
+        'smoothie': ['smoothie'],
+        'thali': ['thali']
+    }
+    
+    keywords = food_keywords.get(food_type, [food_type])
+    matching_items = []
+    
+    for item in menu_items:
+        item_name_lower = item['item_name'].lower()
+        if any(keyword in item_name_lower for keyword in keywords):
+            # Filter by diet
+            if diet_type == 'veg' and item['nc']:
+                continue
+            elif diet_type == 'non-veg' and not item['nc']:
+                continue
+            matching_items.append(item)
+    
+    # Shuffle for variety
+    random.shuffle(matching_items)
+    return matching_items
+
+def get_combo_items(main_item, diet_type):
+    """Get combo items that go well with the main item - Main Course + Starter + Beverage structure"""
+    if not main_item:
+        return []
+    
+    main_name = main_item['item_name'].lower()
+    main_category = main_item['category']
+    combo_items = []
+    
+    # Define proper meal structure: Starter + Main Course + Beverage
+    # Avoid bread with starters, no Hi Tea items
+    
+    # 1. Add a starter (appetizer) - never bread items
+    starter_categories = ['Soup', 'Salad', 'Smokey Tandoori Starter Veg', 'Continental Starter', 'Bar Bite']
+    if main_item['nc']:  # Non-veg main course
+        starter_categories.extend(['Smokey Tandoori Roasted Non Veg'])
+    
+    # Shuffle starter categories for variety
+    random.shuffle(starter_categories)
+    
+    for category in starter_categories:
+        starter_items = [item for item in menu_items 
+                        if item['category'] == category and 
+                        item['item_name'] != main_item['item_name']]
+        
+        # Filter by diet but allow both for starters
+        if diet_type == 'veg':
+            starter_items = [item for item in starter_items if not item['nc']]
+        elif diet_type == 'non-veg':
+            starter_items = [item for item in starter_items if item['nc']]
+        
+        if starter_items:
+            random.shuffle(starter_items)  # Add randomness
+            combo_items.append(starter_items[0])
+            break
+    
+    # 2. Add bread/accompaniment ONLY for main courses that need it
+    if main_category in ['Indian Main Course Veg', 'Indian Main Course Non Veg']:
+        bread_items = [item for item in menu_items 
+                      if item['category'] == 'Indian Breads' and 
+                      item['item_name'] != main_item['item_name']]
+        if bread_items:
+            random.shuffle(bread_items)
+            combo_items.append(bread_items[0])
+    
+    # 3. Add beverage (always include)
+    beverage_items = [item for item in menu_items 
+                     if item['category'] == 'Beverages' and 
+                     item['item_name'] != main_item['item_name']]
+    
+    # Filter beverages by diet if needed
+    if diet_type == 'veg':
+        beverage_items = [item for item in beverage_items if not item['nc']]
+    elif diet_type == 'non-veg':
+        beverage_items = [item for item in beverage_items if item['nc']]
+    
+    if beverage_items:
+        random.shuffle(beverage_items)
+        combo_items.append(beverage_items[0])
+    
+    # 4. Add dessert or side if we have space
+    if len(combo_items) < 3:
+        side_categories = ['Dessert', 'Raita']
+        random.shuffle(side_categories)
+        
+        for category in side_categories:
+            side_items = [item for item in menu_items 
+                         if item['category'] == category and 
+                         item['item_name'] != main_item['item_name']]
+            
+            if diet_type == 'veg':
+                side_items = [item for item in side_items if not item['nc']]
+            elif diet_type == 'non-veg':
+                side_items = [item for item in side_items if item['nc']]
+            
+            if side_items:
+                random.shuffle(side_items)
+                combo_items.append(side_items[0])
+                break
+    
+    return combo_items[:3]
 
 @app.route('/test-mood', methods=['POST'])
 def test_mood():
-    data = request.get_json()
-    text = data.get('text', '')
-    
-    if not text:
-        return jsonify({"error": "Text is required"}), 400
-    
     try:
+        data = request.get_json()
+        text = data.get('text', '')
+        
+        if not text:
+            return jsonify({"error": "Text is required"}), 400
+        
         if ML_AVAILABLE:
             ml_mood, ml_confidence = mood_detector.predict_mood_with_sentiment(text)
         else:
@@ -687,26 +826,9 @@ def test_mood():
             "simple_result": {"mood": simple_mood, "confidence": simple_confidence}
         })
     except Exception as e:
-        logger.error(f"Recommend endpoint error: {str(e)}")
+        logger.error(f"Test mood endpoint error: {str(e)}")
         return jsonify({"error": "Internal server error"}), 500
 
-# Production error handlers
-@app.errorhandler(404)
-def not_found(error):
-    logger.error(f"404 error: {request.url}")
-    return jsonify({"error": "Endpoint not found"}), 404
-
-@app.errorhandler(500)
-def internal_error(error):
-    logger.error(f"500 error: {str(error)}")
-    return jsonify({"error": "Internal server error"}), 500
-
-@app.errorhandler(400)
-def bad_request(error):
-    logger.error(f"400 error: {str(error)}")
-    return jsonify({"error": "Bad request"}), 400
-
-# Health check endpoint
 @app.route('/health', methods=['GET'])
 def health_check():
     return jsonify({
@@ -714,6 +836,7 @@ def health_check():
         "timestamp": datetime.now().isoformat(),
         "version": "1.0.0",
         "menu_items": len(menu_items),
+        "advanced_ml_available": ADVANCED_ML_AVAILABLE,
         "ml_available": ML_AVAILABLE
     })
 
