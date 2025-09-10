@@ -9,6 +9,23 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 import pickle
 import re
+
+# Setup NLTK for TextBlob
+try:
+    import nltk
+    import ssl
+    try:
+        _create_unverified_https_context = ssl._create_unverified_context
+    except AttributeError:
+        pass
+    else:
+        ssl._create_default_https_context = _create_unverified_https_context
+    
+    nltk.download('punkt', quiet=True)
+    nltk.download('brown', quiet=True)
+except:
+    pass
+
 from textblob import TextBlob
 
 class ImprovedMoodDetector:
@@ -166,7 +183,21 @@ class ImprovedMoodDetector:
                     mood = 'relaxed'
                     confidence = 0.6
         except:
-            pass
+            # Fallback to keyword-based sentiment if TextBlob fails
+            text_lower = text.lower()
+            positive_words = ['great', 'amazing', 'wonderful', 'fantastic', 'excellent', 'good']
+            negative_words = ['bad', 'terrible', 'awful', 'horrible', 'worst', 'hate']
+            
+            if confidence < 0.4:
+                positive_count = sum(1 for word in positive_words if word in text_lower)
+                negative_count = sum(1 for word in negative_words if word in text_lower)
+                
+                if positive_count > negative_count and positive_count > 0:
+                    mood = 'happy'
+                    confidence = 0.7
+                elif negative_count > positive_count and negative_count > 0:
+                    mood = 'sad'
+                    confidence = 0.7
         
         return mood, confidence
 

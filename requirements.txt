@@ -6,3 +6,4 @@ numpy
 requests
 gunicorn
 flask-cors
+nltk
