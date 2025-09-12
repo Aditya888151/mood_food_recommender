@@ -6,7 +6,7 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score
 import pickle
 import re
 
@@ -201,19 +201,3 @@ class ImprovedMoodDetector:
         
         return mood, confidence
 
-if __name__ == "__main__":
-    detector = ImprovedMoodDetector()
-    detector.train_model()
-    
-    # Test examples
-    test_texts = [
-        "I'm feeling really happy today!",
-        "I'm so stressed about work",
-        "I'm starving and need food",
-        "I want to try something adventurous"
-    ]
-    
-    print("\nTesting:")
-    for text in test_texts:
-        mood, confidence = detector.predict_mood_with_sentiment(text)
-        print(f"'{text}' -> {mood} ({confidence:.2f})")

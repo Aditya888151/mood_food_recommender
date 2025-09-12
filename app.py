@@ -1,11 +1,10 @@
 # Mood-based Food Recommendation API - Production Version
 from flask import Flask, jsonify, request
 from flask_cors import CORS
-import json
 import re
 import logging
-import os
 import random
+import os
 from datetime import datetime
 
 # Setup NLTK for TextBlob (Railway fix)

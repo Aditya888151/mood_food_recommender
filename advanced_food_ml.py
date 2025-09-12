@@ -4,12 +4,11 @@ import numpy as np
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.metrics import accuracy_score, classification_report
+from sklearn.metrics import accuracy_score
 from sklearn.preprocessing import LabelEncoder
 import pickle
 import re
-import requests
-import json
+
 from textblob import TextBlob
 
 class AdvancedFoodML:
@@ -162,10 +161,12 @@ class AdvancedFoodML:
             'combo_data': pd.DataFrame({'main_dish': combo_texts, 'combo_items': combo_labels})
         }
     
-    def get_online_food_data(self):
-        """Fetch additional food data from online sources"""
-        online_data = []
-        
+
+    
+    def train_models(self):
+        """Train both mood detection and combo recommendation models"""
+        print("Creating comprehensive training data...")
+        training_data = self.create_comprehensive_training_data()
         # Food pairing knowledge base
         food_pairings = {
             'chicken': ['rice', 'naan', 'salad', 'soup', 'beverages'],
@@ -180,19 +181,12 @@ class AdvancedFoodML:
             'dessert': ['coffee', 'tea', 'milk', 'beverages']
         }
         
+        online_data = []
         for main_food, pairings in food_pairings.items():
             online_data.append({
                 'main_dish': main_food,
                 'combo_items': ' '.join(pairings)
             })
-        
-        return online_data
-    
-    def train_models(self):
-        """Train both mood detection and combo recommendation models"""
-        print("Creating comprehensive training data...")
-        training_data = self.create_comprehensive_training_data()
-        online_data = self.get_online_food_data()
         
         # Train mood detection model
         mood_df = training_data['mood_data']
@@ -309,26 +303,3 @@ class AdvancedFoodML:
             print("No saved advanced models found.")
             return False
 
-if __name__ == "__main__":
-    # Train the advanced model
-    advanced_ml = AdvancedFoodML()
-    advanced_ml.train_models()
-    
-    # Test the models
-    test_cases = [
-        "I'm feeling really happy today!",
-        "So stressed about work deadlines",
-        "Starving and need food now",
-        "Want to try something adventurous"
-    ]
-    
-    print("\nTesting Advanced Mood Detection:")
-    for text in test_cases:
-        mood, confidence = advanced_ml.predict_mood_advanced(text)
-        print(f"'{text}' -> {mood} ({confidence:.2f})")
-    
-    print("\nTesting Advanced Combo Prediction:")
-    combo_tests = ["butter chicken", "pizza", "biryani", "pasta"]
-    for dish in combo_tests:
-        combos = advanced_ml.predict_combo_advanced(dish)
-        print(f"'{dish}' -> {combos}")
